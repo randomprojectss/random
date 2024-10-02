@@ -1,1 +1,192 @@
+local req = (syn and syn.request) or (http and http.request) or http_request
 
+function GetHttp(URL)
+    local Data = nil
+    local Test = req({
+        Url = URL,
+        Method = 'GET',
+    })
+    for i, v in pairs(Test) do
+        Data = v
+    end
+    return Data
+end
+
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+
+local Window = Fluent:CreateWindow({
+    Title = "Fluent " .. Fluent.Version,
+    SubTitle = "by dawid",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Main", Icon = "" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
+}
+
+local Options = Fluent.Options
+
+local ToggleFeature = false
+
+local Toggle = Tabs.Main:AddToggle("FeatureToggle", { Title = "Enable Feature", Default = false })
+Toggle:OnChanged(function()
+    ToggleFeature = Toggle.Value
+end)
+
+Options.FeatureToggle:SetValue(false)
+
+local proximityScalingFactor = 1.2
+local minDistanceValue = 3.8
+
+local ProximitySlider = Tabs.Main:AddSlider("ProximityScalingFactor", {
+    Title = "Proximity Scaling",
+    Description = "Adjust the proximity scaling factor",
+    Default = 1.2,
+    Min = 0.1,
+    Max = 10,
+    Rounding = 1,
+    Callback = function(Value)
+        proximityScalingFactor = math.clamp(Value, 0.1, 10)
+    end
+})
+
+local MinDistanceSlider = Tabs.Main:AddSlider("MinDistance", {
+    Title = "Minimum Distance",
+    Description = "Adjust the minimum distance",
+    Default = 3.8,
+    Min = 0.1,
+    Max = 10,
+    Rounding = 1,
+    Callback = function(Value)
+        minDistanceValue = Value
+    end
+})
+
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+InterfaceManager:SetFolder("FluentScriptHub")
+SaveManager:SetFolder("FluentScriptHub/specific-game")
+
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+SaveManager:BuildConfigSection(Tabs.Settings)
+
+Window:SelectTab(1)
+
+Fluent:Notify({
+    Title = "Fluent",
+    Content = "The script has been loaded.",
+    Duration = 8
+})
+
+SaveManager:LoadAutoloadConfig()
+
+local Players = game:GetService("Players")
+local VirtualUser = game:GetService("VirtualUser")
+
+local player = Players.LocalPlayer
+
+local AutoSlashEnabled = false
+local lastDodgeTime = 0
+local dodgeCooldown = 0.01 -- Reduced cooldown for faster dodging
+local maxHighlightChecks = 5
+local highlightCount = 0
+local highlightThreshold = 5
+local dodgeCooldownBase = 0.01 -- Reduced base cooldown
+local dodgeCooldownReduction = 0.005 -- Reduced cooldown reduction
+
+function ToggleAutoSlash(state)
+    AutoSlashEnabled = state
+end
+
+local CanSlash = false
+local BallSpeed = 0
+local lastBlockedSpeed = 0
+
+local function getSpeed(part)
+    if part:IsA("BasePart") then
+        local speed = part.Velocity.Magnitude
+        if speed > 1 then
+            return part, speed
+        end
+        return nil, nil
+    else
+        return nil, nil
+    end
+end
+
+spawn(function()
+    while task.wait(0.005) do -- Increased check frequency
+        if AutoSlashEnabled then
+            pcall(function()
+                local highlight = workspace:FindFirstChild("Alive"):FindFirstChild(player.Name):FindFirstChild("Highlight"):FindFirstChild("gigqchqd37")
+                
+                if not highlight then
+                    highlightCount = 0
+
+                    for _, v in pairs(game:GetService("Workspace").Balls:GetChildren()) do
+                        if highlightCount >= maxHighlightChecks then
+                            break
+                        end
+
+                        if v:IsA("Part") then
+                            local part, speed = getSpeed(v)
+                            if part and speed then
+                                local distance = (player.Character.HumanoidRootPart.Position - part.Position).Magnitude
+                                local proximityScalingFactor = math.clamp(distance / 10, 0.5, 2)
+                                BallSpeed = math.max(speed * 0.2 * proximityScalingFactor, 5)
+
+                                local maxSpeedCap = 110
+                                if BallSpeed > maxSpeedCap then
+                                    BallSpeed = maxSpeedCap
+                                end
+
+                                local bufferDistance = 4
+
+                                if distance <= (BallSpeed + bufferDistance) then
+                                    CanSlash = true
+                                    lastBlockedSpeed = BallSpeed
+                                    highlightCount = highlightCount + 1
+
+                                    local cooldownAdjustment = math.max(0, dodgeCooldownBase - (highlightCount - highlightThreshold) * dodgeCooldownReduction)
+                                    if tick() - lastDodgeTime >= cooldownAdjustment then
+                                        local direction = (part.Position - player.Character.HumanoidRootPart.Position).unit
+                                        local blockDirection = Vector3.new(0, 1, 0)
+
+                                        if direction.Y < 0 then
+                                            blockDirection = Vector3.new(0, -1, 0)
+                                        elseif math.abs(direction.X) > math.abs(direction.Z) then
+                                            blockDirection = Vector3.new(direction.X, 0, 0)
+                                        else
+                                            blockDirection = Vector3.new(0, 0, direction.Z)
+                                        end
+
+                                        game:GetService("VirtualInputManager"):SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                                        lastDodgeTime = tick()
+                                    end
+                                else
+                                    CanSlash = false
+                                end
+
+                                highlightCount = highlightCount + 1
+                            end
+                        end
+                    end
+                else
+                    highlightCount = math.max(0, highlightCount - 1)
+                end
+            end)
+        end
+    end
+end)
+
+ToggleAutoSlash(true)
